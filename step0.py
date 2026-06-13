@@ -10,7 +10,7 @@ def get_device() -> str:
         return "cuda"
     else:
         return "cpu"
-    
+
 
 def main():
     # 确定模型
@@ -31,13 +31,10 @@ def main():
 
     print(num_params)
 
-
     # 把模型切换到推理评估模式
     model.eval()
 
-
     print(next(model.parameters()).device)
-
 
     # 增加输出
     prompt = "介绍一下人工智能"
@@ -45,28 +42,22 @@ def main():
     print(token_ids)
     print(len(token_ids))
 
-
     for token_id in token_ids:
-        print(
-            token_id,
-            tokenizer.decode(token_id)
-            
-        )
+        print(token_id, tokenizer.decode(token_id))
 
-
-    input_ids = torch.tensor([token_ids]).to(device)  # 因为 transformer 的输入约定是[batch_size, sequence_length] 所以多加了一个 batch 维度
+    input_ids = torch.tensor([token_ids]).to(
+        device
+    )  # 因为 transformer 的输入约定是[batch_size, sequence_length] 所以多加了一个 batch 维度
     print(input_ids)
     print(input_ids.shape)
-
 
     outputs = model(input_ids)
     logits = outputs.logits
 
     print("input_ids.shape", input_ids.shape)
-    print("logits.shape", logits.shape) # logits [batch, seq, vocab_size]
+    print("logits.shape", logits.shape)  # logits [batch, seq, vocab_size]
     print(logits)
-    print(logits[0, 0, :], logits[0, 0, :].shape) # 
-
+    print(logits[0, 0, :], logits[0, 0, :].shape)  #
 
     last_logits = logits[:, -1, :]  # 只有最后一个 token 的预测真正用于生成下一token
     next_token = torch.argmax(last_logits, dim=-1)
@@ -86,7 +77,7 @@ def main():
         logits = outputs.logits
         past_key_values = outputs.past_key_values
         print(f"logits: {logits}")
-        print(f"logits.shape: {logits.shape}")   # [batch, seq_len, vocab_size]
+        print(f"logits.shape: {logits.shape}")  # [batch, seq_len, vocab_size]
         print(f"past_key_values: {past_key_values}")
         print(f"type(past_key_values): {type(past_key_values)}")
 
@@ -95,33 +86,48 @@ def main():
         print(f"logits[0, -1]: {logits[0, -1]}")
 
         # greedy 从最后一个位置取 argmax
-        next_token_id = int(torch.argmax(logits[0, -1], dim=-1,).item())
+        next_token_id = int(
+            torch.argmax(
+                logits[0, -1],
+                dim=-1,
+            ).item()
+        )
         print(f"next_token_id: {next_token_id}")
         generated_token_ids.append(next_token_id)
         print(f"generated_token_ids: {generated_token_ids}")
 
-
         # decode
         for step in range(max_new_token - 1):
-            next_input_id = torch.tensor([[next_token_id]], dtype=torch.long, device=device)  # 使用 dtype 显示声明是整数
+            next_input_id = torch.tensor(
+                [[next_token_id]], dtype=torch.long, device=device
+            )  # 使用 dtype 显示声明是整数
             print(f"next_input_id: {next_input_id}")  # 实际就是 prefill 的第一个 TOKEN
 
-            output = model(input_ids=next_input_id, past_key_values=past_key_values, use_cache=True)
+            output = model(
+                input_ids=next_input_id, past_key_values=past_key_values, use_cache=True
+            )
             logits = output.logits
             past_key_values = output.past_key_values
 
             # greedy 从最后一个位置取 argmax
-            next_token_id = int(torch.argmax(logits[0, -1], dim=-1,).item())
+            next_token_id = int(
+                torch.argmax(
+                    logits[0, -1],
+                    dim=-1,
+                ).item()
+            )
             print(f"next_token_id: {next_token_id}")
             generated_token_ids.append(next_token_id)
             print(f"generated_token_ids: {generated_token_ids}")
 
             # 判断是否截止了
-            if (tokenizer.eos_token_id is not None and next_token_id == tokenizer.eos_token_id):
+            if (
+                tokenizer.eos_token_id is not None
+                and next_token_id == tokenizer.eos_token_id
+            ):
                 print(f"Hit EOS at step {step + 1}")
                 break
         generated_text = tokenizer.decode(generated_token_ids, skip_special_tokens=True)
-
 
         print("\n==== PROMOTE ====")
         print(prompt)
@@ -130,9 +136,5 @@ def main():
         print(generated_text)
 
 
-
 if __name__ == "__main__":
     main()
-
-
-
