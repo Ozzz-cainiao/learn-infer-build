@@ -19,19 +19,39 @@ def get_device() -> str:
 
 
 # ============================================================
-# Sampler
+# Sampler (Unified Entry)
 # ============================================================
 
 
-def greedy_sample(logits: torch.Tensor) -> int:
+def sample(
+    logits: torch.Tensor,
+    strategy: str = "greedy",
+    temperature: float = 1.0,
+) -> int:
     """
+    Unified Sampling Entry
+
     logits shape:
         [vocab_size]
 
     return:
         next token id
     """
-    return int(torch.argmax(logits, dim=-1).item())
+
+    if strategy == "greedy":
+        return int(torch.argmax(logits, dim=-1).item())
+
+    elif strategy == "temperature":
+        temperature = max(temperature, 1e-6)
+
+        scaled_logits = logits / temperature
+        probs = torch.softmax(scaled_logits, dim=-1)
+
+        next_token = torch.multinomial(probs, num_samples=1)
+        return int(next_token.item())
+
+    else:
+        raise ValueError(f"Unknown strategy: {strategy}")
 
 
 # ============================================================
@@ -159,6 +179,8 @@ def generate(
     device: str,
     max_new_tokens: int = 50,
     stop_strings=None,
+    sampling_strategy: str = "greedy",  # NEW
+    temperature: float = 1.0,  # NEW
 ):
     generated_token_ids = []
 
@@ -180,8 +202,15 @@ def generate(
         input_ids=input_ids,
     )
 
-    # 只取最后一个位置
-    next_token_id = greedy_sample(logits[0, -1])
+    # --------------------------------------------------------
+    # First token
+    # --------------------------------------------------------
+
+    next_token_id = sample(
+        logits[0, -1],
+        strategy=sampling_strategy,
+        temperature=temperature,
+    )
 
     generated_token_ids.append(next_token_id)
 
@@ -198,11 +227,15 @@ def generate(
             device=device,
         )
 
-        next_token_id = greedy_sample(logits[0, -1])
+        next_token_id = sample(
+            logits[0, -1],
+            strategy=sampling_strategy,
+            temperature=temperature,
+        )
 
         generated_token_ids.append(next_token_id)
 
-        # 当前生成结果
+        # current text (needed for stop string)
         current_text = tokenizer.decode(
             generated_token_ids,
             skip_special_tokens=True,
@@ -253,8 +286,10 @@ def main():
         tokenizer=tokenizer,
         prompt=prompt,
         device=device,
-        max_new_tokens=500,
-        stop_strings="。",
+        max_new_tokens=200,
+        stop_strings=["。"],  # 修复：必须是 list
+        sampling_strategy="temperature",
+        temperature=0.8,
     )
 
     print("\n==== PROMPT ====")
