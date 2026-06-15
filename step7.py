@@ -230,164 +230,130 @@ def should_stop(
 # ============================================================
 
 
-@torch.no_grad()
-def generate(
-    model,
-    tokenizer,
-    prompt: str,
-    device: str,
-    sampling_params: SamplingParams,
-):
+class Generator:
 
-    # --------------------------------------------------------
-    # Encode
-    # --------------------------------------------------------
+    def __init__(self, model, tokenizer, device):
+        self.model = model
+        self.tokenizer = tokenizer
+        self.device = device
 
-    runtime = RuntimeState(
-        request_id="0",
-        prompt=prompt,
-        prompt_token_ids=tokenizer.encode(
-            prompt,
-            return_tensors="pt",
-        ).to(device),
-        sampling_params=sampling_params,
-    )
+    def generate_tokens(
+        self,
+        prompt: str,
+        sampling_params: SamplingParams,
+    ):
+        # --------------------------------------------------------
+        # Encode
+        # --------------------------------------------------------
 
-    # --------------------------------------------------------
-    # Prefill
-    # --------------------------------------------------------
-
-    runtime.logits, runtime.past_key_values = prefill(
-        model=model,
-        input_ids=runtime.prompt_token_ids,
-    )
-
-    # --------------------------------------------------------
-    # First token
-    # --------------------------------------------------------
-
-    runtime.current_token_id = sample(
-        runtime.logits[0, -1],
-        strategy=sampling_params.strategy,
-        temperature=sampling_params.temperature,
-    )
-
-    runtime.append_token(runtime.current_token_id)
-
-    # --------------------------------------------------------
-    # Decode Loop
-    # --------------------------------------------------------
-
-    for step in range(sampling_params.max_new_tokens - 1):
-
-        runtime.logits, runtime.past_key_values = decode_one_token(
-            model=model,
-            token_id=runtime.current_token_id,
-            past_key_values=runtime.past_key_values,
-            device=device,
+        runtime = RuntimeState(
+            request_id="0",
+            prompt=prompt,
+            prompt_token_ids=self.tokenizer.encode(
+                prompt,
+                return_tensors="pt",
+            ).to(self.device),
+            sampling_params=sampling_params,
         )
 
-        next_token_id = sample(
+        # --------------------------------------------------------
+        # Prefill
+        # --------------------------------------------------------
+
+        runtime.logits, runtime.past_key_values = prefill(
+            model=self.model,
+            input_ids=runtime.prompt_token_ids,
+        )
+
+        # --------------------------------------------------------
+        # First token
+        # --------------------------------------------------------
+
+        runtime.current_token_id = sample(
             runtime.logits[0, -1],
             strategy=sampling_params.strategy,
             temperature=sampling_params.temperature,
         )
 
-        runtime.append_token(next_token_id)
+        runtime.append_token(runtime.current_token_id)
 
-        runtime.generated_text = runtime.get_text(tokenizer)
+        # --------------------------------------------------------
+        # Decode Loop
+        # --------------------------------------------------------
 
-        if should_stop(
-            generated_token_ids=runtime.generated_token_ids,
-            generated_text=runtime.generated_text,
-            tokenizer=tokenizer,
-            max_new_tokens=sampling_params.max_new_tokens,
-            stop_strings=sampling_params.stop_strings,
-        ):
-            break
+        for step in range(sampling_params.max_new_tokens - 1):
 
-    return runtime.generated_text
+            runtime.logits, runtime.past_key_values = decode_one_token(
+                model=self.model,
+                token_id=runtime.current_token_id,
+                past_key_values=runtime.past_key_values,
+                device=self.device,
+            )
 
+            next_token_id = sample(
+                runtime.logits[0, -1],
+                strategy=sampling_params.strategy,
+                temperature=sampling_params.temperature,
+            )
 
-@torch.no_grad()
-def generate_stream(
-    model,
-    tokenizer,
-    prompt: str,
-    device: str,
-    sampling_params: SamplingParams,
-):
+            runtime.append_token(next_token_id)
 
-    # -------------------------
-    # Encode
-    # -------------------------
+            runtime.generated_text = runtime.get_text(self.tokenizer)
 
-    runtime = RuntimeState(
-        request_id="0",
-        prompt=prompt,
-        prompt_token_ids=tokenizer.encode(
+            yield runtime
+
+            if should_stop(
+                generated_token_ids=runtime.generated_token_ids,
+                generated_text=runtime.generated_text,
+                tokenizer=self.tokenizer,
+                max_new_tokens=sampling_params.max_new_tokens,
+                stop_strings=sampling_params.stop_strings,
+            ):
+                break
+
+        return runtime.generated_text
+
+    @torch.no_grad()
+    def generate(
+        self,
+        prompt: str,
+        sampling_params: SamplingParams,
+    ):
+
+        runtime = None
+
+        for runtime in self.generate_tokens(
             prompt,
-            return_tensors="pt",
-        ).to(device),
-        sampling_params=sampling_params,
-    )
-
-    # -------------------------
-    # Prefill
-    # -------------------------
-
-    runtime.logits, runtime.past_key_values = prefill(
-        model=model,
-        input_ids=runtime.prompt_token_ids,
-    )
-
-    next_token_id = sample(
-        runtime.logits[0, -1],
-        strategy=sampling_params.strategy,
-        temperature=sampling_params.temperature,
-    )
-
-    runtime.append_token(next_token_id)
-
-    # -------------------------
-    # Decode Loop
-    # -------------------------
-
-    for step in range(sampling_params.max_new_tokens - 1):
-
-        runtime.logits, runtime.past_key_values = decode_one_token(
-            model=model,
-            token_id=next_token_id,
-            past_key_values=runtime.past_key_values,
-            device=device,
-        )
-
-        next_token_id = sample(
-            runtime.logits[0, -1],
-            strategy=sampling_params.strategy,
-            temperature=sampling_params.temperature,
-        )
-
-        runtime.append_token(next_token_id)
-
-        token = runtime.generated_token_ids[-1]
-        delta = tokenizer.decode([token], skip_special_tokens=True)
-
-        yield delta
-
-        # stop check
-        current_text = runtime.get_text(tokenizer)
-
-        if should_stop(
-            runtime.generated_token_ids,
-            current_text,
-            tokenizer,
-            sampling_params.max_new_tokens,
-            sampling_params.stop_strings,
+            sampling_params,
         ):
-            break
+            pass
 
-    return runtime.get_text(tokenizer)
+        return runtime.generated_text
+
+    @torch.no_grad()
+    def generate_stream(
+        self,
+        prompt: str,
+        sampling_params: SamplingParams,
+    ):
+
+        prev_text = ""
+
+        for runtime in self.generate_tokens(
+            prompt,
+            sampling_params,
+        ):
+            current_text = runtime.generated_text
+
+            if current_text.startswith(prev_text):
+                delta = current_text[len(prev_text) :]
+            else:
+                delta = current_text
+
+            prev_text = current_text
+
+            if delta:
+                yield delta
 
 
 # ============================================================
@@ -419,13 +385,12 @@ def main():
         stop_strings=["。"],
     )
 
+    generator = Generator(model, tokenizer, device)
+
     final_text = ""
 
-    for chunk in generate_stream(
-        model=model,
-        tokenizer=tokenizer,
+    for chunk in generator.generate_stream(
         prompt=prompt,
-        device=device,
         sampling_params=params,
     ):
         if chunk:
